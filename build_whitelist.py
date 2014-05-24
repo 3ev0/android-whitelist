@@ -7,6 +7,7 @@ import subprocess
 import hashlib
 
 import magic
+import plyvel
 
 log = None
 tempdir = "/tmp"
@@ -15,7 +16,7 @@ config = {"tempdir":"/tmp",
           }
 
 def hash_file(filepath):
-    with open(filepath) as fh:
+    with open(filepath, mode="br") as fh:
         mmd5 = hashlib.md5()
         msha1 = hashlib.sha1()
         msha256 = hashlib.sha256()
@@ -45,16 +46,16 @@ def explore_filesystem(rootpath):
     for (root, dirs, files) in os.walk(rootpath):
         for fl in files:
             fp = os.path.join(root, fl)
+            log.debug("Processing file %s", fp)
             md5, sha1, sha256 = hash_file(fp)
             storefunc((md5, sha1, sha256), filepath=fp)
     log.info("Done exploring!")
-             
 
 def store_ldb(hashes, **kwargs):
     log.debug("stored hashes %s", repr(hashes))
     return True
 
-def store_sql(md5=None, sha1=None, sha256=None, **kwargs):
+def store_sql(hashes, **kwargs):
     log.debug("stored hashes %s", repr(hashes))
     return True
 
@@ -62,7 +63,7 @@ def store_sql(md5=None, sha1=None, sha256=None, **kwargs):
 def main():
     parser = argparse.ArgumentParser(description="Build hash list from images files or dirs")
     parser.add_argument("source", nargs="+", help="Image file or dir")
-    parser.add_argument("-d", "--debug", help="Enable debugging")
+    parser.add_argument("-d", "--debug", action="store_true", help="Enable debugging")
     parser.add_argument("-o", "--output", default="hashes.db", help="The output database. If existing, the data is added. Default: hashes.db")
     parser.add_argument("-f", "--format", choices=["ldb", "sql"], default="ldb", help="The output format. Default: ldb")
     args = parser.parse_args()
@@ -77,18 +78,24 @@ def main():
         config["storefunc"] = store_sql 
 
     for source in args.source:
-        log.info("Processing %s...", source)
-
+        source = os.path.abspath(source)
+        log.info("New source: %s...", source)
+        tempdir, mounted = False, False
         if not os.path.exists(source):
             log.error("Path does not exist")
             continue
         if os.path.isfile(source):
             if "ext4" in str(magic.from_file(source), encoding="utf8"):
                 log.info("file magic contains 'ext4', assuming ext4 image")
+                mounted = True
             else:
                 log.info("Assuming yaffs image")
+            tempdir = True
         else:
-            log.info("assuming root of filesystem")
+            log.info("assuming this the rootdir of a filesystem")
+            rootpath = source
+
+        explore_filesystem(rootpath)
 
 
 
