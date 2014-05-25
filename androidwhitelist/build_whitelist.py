@@ -5,14 +5,18 @@ import os
 import os.path
 import subprocess
 import hashlib
+import json
 
 import magic
 import plyvel
 
+from androidwhitelist import storage
+
 log = None
 tempdir = "/tmp"
 config = {"tempdir":"/tmp",
-          "storefunc": None
+          "dbpath": "hashes.db",
+          "dbif": None
           }
 
 def hash_file(filepath):
@@ -26,7 +30,7 @@ def hash_file(filepath):
             msha1.update(blob)
             msha256.update(blob)
             blob = fh.read(1024*1024)
-    return mmd5.hexdigest(), msha1.hexdigest(), msha256.hexdigest()
+    return mmd5.digest(), msha1.digest(), msha256.digest()
 
 def unpack_yaffs(imagepath):
     return
@@ -42,23 +46,23 @@ def unmount_image(imagepath):
 
 def explore_filesystem(rootpath):
     storefunc = config["storefunc"]
+    dbif = config["dbif"]
     log.info("Exploring from root %s...", rootpath)
+
+    batch_size = 1024
+    batch = []
     for (root, dirs, files) in os.walk(rootpath):
         for fl in files:
             fp = os.path.join(root, fl)
             log.debug("Processing file %s", fp)
-            md5, sha1, sha256 = hash_file(fp)
-            storefunc((md5, sha1, sha256), filepath=fp)
+            hashes = hash_file(fp)
+            batch.append((hashes, {"filepath":fp}))
+            if len(batch) >= batch_size:
+                config["dbif"].batch_write(batch)
+                batch = []
+    config["dbif"].batch_write(batch)
+
     log.info("Done exploring!")
-
-def store_ldb(hashes, **kwargs):
-    log.debug("stored hashes %s", repr(hashes))
-    return True
-
-def store_sql(hashes, **kwargs):
-    log.debug("stored hashes %s", repr(hashes))
-    return True
-
 
 def main():
     parser = argparse.ArgumentParser(description="Build hash list from images files or dirs")
@@ -71,11 +75,12 @@ def main():
     logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO)
     global log
     log = logging.getLogger()
-    
+
+    config["dbpath"] = args.output
     if args.format == "ldb":
-        config["storefunc"] = store_ldb
+        config["dbif"] = storage.LevelDbIf(config["dbpath"], create_if_missing=True)
     else:
-        config["storefunc"] = store_sql 
+        raise Exception("db format not implemented")
 
     for source in args.source:
         source = os.path.abspath(source)
