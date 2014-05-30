@@ -12,14 +12,43 @@ import struct
 import magic
 import plyvel
 
-from androidwhitelist import storage
-
 _log = logging.getLogger()
 _tempdir = "/tmp"
 _config = {"tempdir":"/tmp",
           "dbpath": "hashes.db",
           "dbif": None
           }
+
+def write_hashes(hashes, value, replace=True):
+    num_added, num_procd, dupl = 0, 0, 0
+    for hash in hashes:
+        num_procd += 1
+        if _config["dbif"].get(hash):
+            dupl += 1
+            if not replace:
+                _log.debug("%s allready present in db, not adding", repr(hash))
+                continue
+        _config["dbif"].put(hash, bytes(json.dumps(value), encoding="utf8"))
+        num_added += 1
+        _log.debug("%s added to database", repr(hash))
+    return num_added, num_procd, dupl
+
+def batch_write(items, replace=True):
+    _log.debug("Batch write of %d items to %s", len(items), repr(_config["dbif"]))
+    num_added, num_procd, dupl = 0, 0, 0
+    with _config["dbif"].write_batch() as wb:
+        for hashes,value in items:
+            for hash in hashes:
+                num_procd += 1
+                if _config["dbif"].get(hash):
+                    dupl += 1
+                    if not replace:
+                        _log.debug("%s allready present in db, not adding", repr(hash))
+                        continue
+                wb.put(hash, bytes(json.dumps(value), encoding="utf8"))
+                num_added += 1
+                _log.debug("%s added to database", repr(hash))
+    return num_added, num_procd, dupl
 
 def hash_file(filepath):
     _log.debug("Hashing %s", filepath)
@@ -48,13 +77,25 @@ def is_yaffs_image(filepath):
     try:
         headerbytes = open(filepath, "br").read(10)
         (parent_obj_id, sum_no_longer_used) = struct.unpack("I4x2s", headerbytes)
-        _log.debug("%d, %s", parent_obj_id, sum_no_longer_used)
+        #_log.debug("%d, %s", parent_obj_id, sum_no_longer_used)
         return (parent_obj_id in range(0,5) and sum_no_longer_used == b"\xFF\xFF")
     except Exception():
         return False
 
 def unpack_yaffs(imagepath):
-    return
+    _log.info("Extracting Yaffs2 image...")
+    fn = os.path.basename(imagepath)
+    extractdir = os.path.join(_tempdir, fn)
+    if os.path.exists(extractdir):
+        if len(os.listdir(extractdir)):
+            _log.error("Extract dir %s exists and is not empty", extractdir)
+            raise Exception("extractdir exists")
+        else:
+            os.rmdir(extractdir)
+    os.makedirs(extractdir)
+    subprocess.check_call(["unyaffs", imagepath, extractdir])
+    _log.info("Image extracted to %s", extractdir)
+    return extractdir
 
 def mount_image(imagepath):
     fn = os.path.basename(imagepath)
@@ -80,7 +121,7 @@ def explore_filesystem(rootpath, sourceid=None):
 
     batch_size = 1024
     batch = []
-    cnt = 0
+    total_added, total_procd, total_dupl = 0, 0, 0
     for (root, dirs, files) in os.walk(rootpath):
         for fl in files:
             fp = os.path.join(root, fl)
@@ -88,10 +129,14 @@ def explore_filesystem(rootpath, sourceid=None):
             hashes = hash_file(fp)
             batch.append((hashes, {"source_id": sourceid, "filepath":fp}))
             if len(batch) >= batch_size:
-                cnt += dbif.batch_write(batch)
+                added, procd, dupl = batch_write(batch)
+                total_added, total_procd, total_dupl = total_added + added, total_procd + procd, total_dupl + dupl
                 batch = []
-    cnt += dbif.batch_write(batch)
-    _log.info("Done exploring! %d records added to database", cnt)
+    added, procd, dupl = batch_write(batch)
+    total_added, total_procd, total_dupl = total_added + added, total_procd + procd, total_dupl + dupl
+    _log.info("Done exploring!")
+    _log.info("%d records processed", total_procd)
+    _log.info("%d records allready in db", total_dupl)
 
 def main():
     parser = argparse.ArgumentParser(description="Build hash list from images files or dirs")
@@ -106,8 +151,12 @@ def main():
     global _log
 
     _config["dbpath"] = args.output
+    dbcreated = False
     if args.format == "ldb":
-        _config["dbif"] = storage.LevelDbIf(_config["dbpath"], create_if_missing=True)
+        if not os.path.exists(_config["dbpath"]):
+            dbcreated = True
+        _config["dbif"] = plyvel.DB(_config["dbpath"], create_if_missing=True)
+        _log.info("Connected to Ldb database %s", repr(_config["dbif"]))
     else:
         raise Exception("db format not implemented")
 
@@ -133,8 +182,15 @@ def main():
         rootpath = source
 
     explore_filesystem(rootpath, sourceid=args.id)
+    # In case this script is run as sudo because of mounting, we want to change the owner to actual user
+    if os.environ["SUDO_USER"] and dbcreated:
+        subprocess.check_call(["chown", "-R", "{}:{}".format(os.environ["SUDO_UID"], os.environ["SUDO_GID"]), _config["dbpath"]])
+        _log.info("Owner of %s set to %s:%s", _config["dbpath"],os.environ["SUDO_UID"], os.environ["SUDO_GID"])
     if mounted:
         unmount_image(rootpath)
+    if tempdir:
+        shutil.rmtree(rootpath)
+        _log.info("Temp dir %s deleted", rootpath)
 
 if __name__ == "__main__":
     main()
