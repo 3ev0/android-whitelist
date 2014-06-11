@@ -19,6 +19,8 @@ DEF_FILTERDB = "filter.db"
 class HashFilter(modularity.ModuleBase):
 
     description = "Exclude files from the database by filtering by files in some dir tree or blackswan database"
+    modname = "hashfilter"
+
     @staticmethod
     def create_db(rootpath, tempdb):
         explorer = modularity.modules["Explore"]()

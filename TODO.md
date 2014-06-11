@@ -1,8 +1,19 @@
 - Check AOSP images
-- Add cyanogenmod and 3 most popular custom roms to database
-- Use public source
 
-- Implement ssdeep value
+Check against VirusTotal API
+----------------------------
+- Check APK, Odex files
+
+
+
+
+Check apk permissions
+---------------------
+- which permissions exist
+- which indicate malware (read SD, use internet, phonecall, sms)
+- can this be circumvented by downloading and reflecting code
+
+
 
 Validate APK files:
 -------------------

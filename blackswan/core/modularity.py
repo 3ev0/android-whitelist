@@ -7,28 +7,20 @@ from blackswan import config
 
 _log = logging.getLogger(__name__)
 
-modules = {}
-
 class ModuleBase():
+    argparser = None
+
     def __init__(self):
         self.config = {}
 
     @classmethod
     def register(cls):
-        cls.argparser = argparse.ArgumentParser(description=cls.description)
-        cls.argparser.add_argument("-d", "--debug", action="store_true", help="Enable debugging")
+        cls.argparser = argparse.ArgumentParser(description=cls.description, prog=cls.modname, add_help=False)
         cls.argparser.add_argument("-b", "--db", default=config.def_db, help="The blackswan db file. Default: {}".format(config.def_db))
         cls.add_args()
-        modules[cls.__name__] = cls
-        _log.info("Module %s registered", cls.__name__)
+        config.modules[cls.modname] = cls
+        _log.debug("Module %s registered", cls.modname)
         return
-
-    def parse_args(self):
-        args = self.argparser.parse_args()
-        if args.debug:
-            config.set_debug()
-        self.configure(**vars(args))
-        return True
 
     @classmethod
     def add_args(cls):
@@ -38,13 +30,17 @@ class ModuleBase():
         raise NotImplementedError
 
     def __repr__(self):
-        return "<{}({})>".format(self.__name__, repr(self.config))
+        return "<{}({})>".format(self.modname, repr(self.config))
+
+    def parse_args(self, modargs):
+        args = self.argparser.parse_args(args=modargs)
+        self.config.update(**vars(args))
 
     def run(self):
-        _log.info("Plugin %s started", self.__class__.__name__)
+        _log.info("Module %s started", self.modname)
         self.work()
-        _log.info("Plugin %s finished", self.__class__.__name__)
+        _log.info("Module %s finished", self.modname)
 
     def configure(self, **kwargs):
         self.config.update(kwargs)
-        _log.info("Module %s configured: \n%s", self.__class__.__name__, repr(self.config))
+        _log.info("Module %s configured: \n%s", self.modname, repr(self.config))

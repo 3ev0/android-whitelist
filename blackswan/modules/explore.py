@@ -17,6 +17,7 @@ _log = logging.getLogger(__name__)
 
 class Explore(modularity.ModuleBase):
     description = "Explore filesystem and store file metadata in sqlite database file."
+    modname = "explore"
 
     @staticmethod
     def hash_file(fp, hexdigest=True):
@@ -45,6 +46,9 @@ class Explore(modularity.ModuleBase):
         Does not yield symbolic links and does not follow symlinks to dirs (due to os.walk functionality).
         @yield: absolute filepath
         """
+        if not os.path.exists(rootdir):
+            _log.error("Dir %s does not exist", rootdir)
+            raise Exception("Dir {} does not exist", rootdir)
         for (root, dirs, files) in os.walk(rootdir, followlinks=False):
             for fn in files:
                 yield (os.path.relpath(os.path.join(root, fn), rootdir), os.path.join(root, fn))

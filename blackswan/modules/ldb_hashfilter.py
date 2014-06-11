@@ -17,6 +17,7 @@ _log = logging.getLogger(__name__)
 class LdbHashFilter(modularity.ModuleBase):
 
     description = "Exclude files from the database by filtering on hashes in LevelDb database"
+    modname = "ldb_hashfilter"
 
     def work(self):
         dbpath = os.path.abspath(self.config["db"])
@@ -32,7 +33,6 @@ class LdbHashFilter(modularity.ModuleBase):
             _log.error(repr(err))
             raise err
         _log.info("Filter: %s", os.path.abspath(filterpath))
-
 
         destdbIf = database.DbIf("sqlite:///{}".format(dbpath))
         destdbIf.add_db_info(key="filter_applied", value=filterpath)
@@ -50,10 +50,10 @@ class LdbHashFilter(modularity.ModuleBase):
             if not (cnt % 10):
                 pbar.update(10)
         destdbIf.Session.commit()
+        filterDbIf.close()
         pbar.finish()
         _log.info("%d of %d records excluded from %s", exclcnt, total, dbpath)
         return True
-        pass
 
     @classmethod
     def add_args(cls):

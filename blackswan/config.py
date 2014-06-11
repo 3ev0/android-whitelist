@@ -6,11 +6,13 @@ import logging
 console = sys.stdout
 def_db = "blackswan.db"
 
+modules = {}
+
 def config_log():
     log = logging.getLogger()
     log_level = logging.INFO
     log.setLevel(log_level)
-    formatter = logging.Formatter('%(asctime)s|%(module)s|%(levelname)s|%(message)s')#, "%Y-%m-%d %H:%M:%S")
+    formatter = logging.Formatter('%(asctime)s|%(module)s|%(levelname)s|%(message)s')
     shandler = logging.StreamHandler()
     shandler.setLevel(logging.DEBUG)
     shandler.setFormatter(formatter)
